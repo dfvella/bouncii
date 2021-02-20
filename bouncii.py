@@ -49,49 +49,20 @@ class Ball:
     def getChr(self) -> str:
         return chr(self.char)
 
-class Screen:
-    def __init__(self, width: int, height: int) -> None:
-        self.width = width + 1
-        self.height = height
-        self.arr = [ "" for _ in range(self.width * self.height) ]
-        self.clear()
-        return
-
-    def toString(self) -> str:
-        return "".join(self.arr)
-
-    def get(self, x: int, y: int) -> str:
-        return(self.arr[(self.width * (self.height - y - 1)) + x])
-
-    def set(self, x:int, y:int, val: str) -> None:
-        self.arr[(self.width * (self.height - y - 1)) + x] = val
-
-    def clear(self) -> None:
-        for i in range(self.width * self.height):
-            if i % self.width == self.width - 1:
-                self.arr[i] = "\n"
-            else:
-                self.arr[i] = " "
-        return
-
 def cursesMain(stdscr: "curses._CursesWindow") -> int:
+    curses.use_default_colors()
     curses.curs_set(0)
     stdscr.nodelay(1)
 
     height, width = stdscr.getmaxyx()
-    screen = Screen(width, height)
-
     balls = [ Ball(width - 1, height - 1) ]
 
     while True:
-        screen.clear()
         stdscr.clear()
 
         for b in balls:
-            screen.set(b.getX(), b.getY(), b.getChr())
+            stdscr.insstr(height - b.getY() - 1, b.getX(), b.getChr())
             b.update()
-
-        stdscr.insstr(0, 0, screen.toString())
 
         try:
             if stdscr.getkey():
