@@ -112,7 +112,7 @@ int mapIndex(int row, int col) {
 }
 
 void mapClear(int *map) {
-    for (int i = 0; i < MAPSIZE; ++i) {
+    for (unsigned int i = 0; i < MAPSIZE; ++i) {
         map[i] = EMPTY;
     }
 }
