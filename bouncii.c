@@ -7,6 +7,12 @@
 #define MAXPARTICLES 256
 #define ROWS LINES
 
+#define MAPSIZE (unsigned)(LINES*COLS)
+
+#define EMPTY -1
+#define BLANK 32
+#define pi (float)(3.14159265)
+
 const unsigned char GRAVITY = 128;
 const unsigned char ROLLRES = 2;
 
@@ -19,8 +25,9 @@ volatile unsigned char state = 1;
 
 typedef struct ParticleStruct {
     float x, y;
+    float xLast, yLast;
     float vx, vy;
-    unsigned int ch;
+    chtype ch;
 } Particle;
 
 void sighandler() {
@@ -64,12 +71,17 @@ int randrange(int min, int max) {
 void particleInit(Particle *p) {
     p->x = (float)randrange(0, COLS);
     p->y = (float)(LINES - 2);
+    p->xLast = 0;
+    p->yLast = 0;
     p->vx = (float)randrange(-40, 40);
     p->vy = (float)randrange(-15, 15);
-    p->ch = (unsigned int)randrange(33, 127);
+    p->ch = (chtype)randrange(33, 127);
 }
 
 void particleUpdate(Particle *p, int mx, int my, float dt) {
+    p->xLast = constrain(p->x, 0, (float)mx);
+    p->yLast = constrain(p->y, 0, (float)my);
+
     if (p->x == 0 || p->x == mx) { /* bounce off sides */
         p->vx *= -1;
     }
@@ -95,14 +107,58 @@ void particleUpdate(Particle *p, int mx, int my, float dt) {
     p->y = constrain(p->y, 0, (float)my);
 }
 
-void mapClear(int *map, int size) {
-    for (int i = 0; i < size; ++i) {
-        map[i] = -1;
+int mapIndex(int row, int col) {
+    return (row * COLS) + col;
+}
+
+void mapClear(int *map) {
+    for (int i = 0; i < MAPSIZE; ++i) {
+        map[i] = EMPTY;
     }
 }
 
-int mapIndex(int row, int col) {
-    return (row * COLS) + col;
+int mapAt(int *map, int row, int col) {
+    return map[mapIndex(row, col)];
+}
+
+int isCollision(int *map, int row, int col) {
+    return map[mapIndex(row, col)] != EMPTY;
+}
+
+int checkCollsion(int *map, int row, int col) {
+    int checkLeft = col > 0;
+    int checkRight = col < (COLS - 1);
+    int checkTop = row < (ROWS - 1);
+    int checkBottom = row > 0;
+
+    if (checkTop && isCollision(map, row+1, col)) {
+        return mapAt(map, row+1, col);
+    } else if (checkTop && checkRight && isCollision(map, row+1, col+1)) {
+        return mapAt(map, row+1, col+1);
+    } else if (checkRight && isCollision(map, row, col+1)) {
+        return mapAt(map, row, col+1);
+    } else if (checkRight && checkBottom && isCollision(map, row-1, col+1)) {
+        return mapAt(map, row-1, col+1);
+    } else if (checkBottom && isCollision(map, row-1, col)) {
+        return mapAt(map, row-1, col);
+    } else if (checkBottom && checkLeft && isCollision(map, row-1, col-1)) {
+        return mapAt(map, row-1, col-1);
+    } else if (checkLeft && isCollision(map, row, col-1)) {
+        return mapAt(map, row, col-1);
+    } else if (checkLeft && checkTop && isCollision(map, row+1, col-1)) {
+        return mapAt(map, row+1, col-1);
+    }
+    return EMPTY;
+}
+
+void printMap(int *map) {
+    for (int i = 0; i < ROWS; ++i) {
+        for (int j = 0; j < COLS; ++j) {
+            fprintf(stderr,"%d ",mapAt(map,i,j));
+        }
+        fprintf(stderr,"\n");
+    }
+    fprintf(stderr,"\n");
 }
 
 int main(void) {
@@ -123,24 +179,84 @@ int main(void) {
 
     particleInit(particles);
 
-    const int mapSize = ROWS * COLS;
-    int *map = malloc(sizeof(int) * (unsigned)mapSize);
-    mapClear(map, mapSize);
+    int *map = malloc(sizeof(int) * (unsigned)MAPSIZE);
+    mapClear(map);
 
     while (state) {
-        clear();
+        #ifdef PRINTSTUFF
+        printMap(map);
+        #endif
 
-        mapClear(map, mapSize);
+        clear();
 
         for (int i = 0; i < numParticles; ++i) {
             particleUpdate(particles + i, COLS - 1, ROWS - 1, PERIOD);
 
             int xPos = (int)round(particles[i].x);
-            int yPos = (int)round(particles[i].y);
+            int yPos = ROWS - (int)round(particles[i].y) - 1;
+            int xPosLast = (int)round(particles[i].xLast);
+            int yPosLast = ROWS - (int)round(particles[i].yLast) - 1;
 
-            map[mapIndex(xPos, yPos)] = i;
+            map[mapIndex(yPosLast, xPosLast)] = EMPTY;
 
-            mvaddch(ROWS - yPos - 1, xPos, particles[i].ch);
+            int pIndex = checkCollsion(map, yPos, xPos);
+
+            if (pIndex != EMPTY) { /* then collision */
+                float vy1 = particles[i].vy;
+                float vx1 = particles[i].vx;
+
+                float vy2 = particles[pIndex].vy;
+                float vx2 = particles[pIndex].vx;
+
+                /* compute angle between velocity vectors */
+                float theta1 = atan2f(particles[i].vy, particles[i].vx);
+                float theta2 = atan2f(particles[pIndex].vy, particles[pIndex].vx);
+
+                /* compute plane tangent to the point of contact */
+                float tPlane = (theta1 + theta2) / 2;
+
+                /* reflect velocity vectors across point of contact */
+                float vNet1 = sqrtf((vy1 * vy1) + (vx1 * vx1));
+                float vNet2 = sqrtf((vy2 * vy2) + (vx2 * vx2));
+
+                /* rotate angles so tangent plane is vertical */
+                theta1 += (pi / 2) - tPlane;
+                theta2 += (pi / 2) - tPlane;
+
+                float vPerp1 = vNet1 * cosf(theta1);
+                float vPare1 = vNet1 * sinf(theta1);
+
+                float vPerp2 = vNet2 * cosf(theta2);
+                float vPare2 = vNet2 * sinf(theta2);
+
+                /* reflect velocity component parallel to tangent plane */
+                vPerp1 *= -1;
+                vPerp2 *= -1;
+
+                theta1 = atan2f(vPare1, vPerp1);
+                theta2 = atan2f(vPerp2, vPare2);
+
+                vNet1 = sqrtf((vPare1 * vPare1) + (vPerp1 * vPerp1));
+                vNet2 = sqrtf((vPare2 * vPare2) + (vPerp2 * vPerp2));
+
+                vNet1 = vNet2 = (vNet1 + vNet2) / 2;
+
+                /* change back to original coordinates */
+                theta1 -= (pi / 2) - tPlane;
+                theta2 -= (pi / 2) - tPlane;
+
+                particles[i].vx = vNet1 * cosf(theta1);
+                particles[i].vy = vNet1 * sinf(theta1);
+
+                particles[pIndex].vx = vNet2 * cosf(theta2);
+                particles[pIndex].vy = vNet2 * sinf(theta2);
+
+                #ifdef PRINTSTUFF
+                fprintf(stderr,"Collision with %d at (%d,%d)\n",pIndex,yPos,xPos);
+                #endif
+            }
+            map[mapIndex(yPos, xPos)] = i;
+            mvaddch(yPos, xPos, particles[i].ch);
         }
 
         refresh();
