@@ -16,6 +16,8 @@
 const unsigned char GRAVITY = 128;
 const unsigned char ROLLRES = 2;
 
+const float ELASTICITY = 0.95f;
+
 const char FRAMERATE = 32;
 const float PERIOD = 1.0f / FRAMERATE;
 
@@ -125,11 +127,11 @@ int isCollision(int *map, int row, int col) {
     return map[mapIndex(row, col)] != EMPTY;
 }
 
-int checkCollsion(int *map, int row, int col) {
-    int checkLeft = col > 0;
-    int checkRight = col < (COLS - 1);
-    int checkTop = row < (ROWS - 1);
-    int checkBottom = row > 0;
+int checkCollision(int *map, int row, int col, Particle *p) {
+    int checkLeft = (col > 0) && (p->vx <= 0);
+    int checkRight = (col < COLS-1) && (p->vx >= 0);
+    int checkTop = (row < ROWS-1) && (p->vy >= 0);
+    int checkBottom = (row > 0) && (p->vy <= 0);
 
     if (checkTop && isCollision(map, row+1, col)) {
         return mapAt(map, row+1, col);
@@ -199,7 +201,7 @@ int main(void) {
 
             map[mapIndex(yPosLast, xPosLast)] = EMPTY;
 
-            int pIndex = checkCollsion(map, yPos, xPos);
+            int pIndex = checkCollision(map, yPos, xPos, particles+i);
 
             if (pIndex != EMPTY) { /* then collision */
                 float vy1 = particles[i].vy;
@@ -240,6 +242,9 @@ int main(void) {
                 vNet2 = sqrtf((vPare2 * vPare2) + (vPerp2 * vPerp2));
 
                 vNet1 = vNet2 = (vNet1 + vNet2) / 2;
+
+                vNet1 *= ELASTICITY;
+                vNet2 *= ELASTICITY;
 
                 /* change back to original coordinates */
                 theta1 -= (pi / 2) - tPlane;
