@@ -32,6 +32,17 @@ typedef struct ParticleStruct {
     chtype ch;
 } Particle;
 
+typedef enum {
+    COL_TOP = 1,
+    COL_TOP_RIGHT = 2,
+    COL_RIGHT = 4,
+    COL_BOT_RIGHT = 8,
+    COL_BOT = 16,
+    COL_BOT_LEFT = 32,
+    COL_LEFT = 64,
+    COL_TOP_LEFT = 128
+} CollisionLocation;
+
 void sighandler() {
     state = 0;
 }
@@ -119,7 +130,7 @@ void mapClear(int *map) {
     }
 }
 
-int mapAt(int *map, int row, int col) {
+int mapAt(const int *map, int row, int col) {
     return map[mapIndex(row, col)];
 }
 
@@ -133,24 +144,49 @@ int checkCollision(int *map, int row, int col, Particle *p) {
     int checkTop = (row < ROWS-1) && (p->vy >= 0);
     int checkBottom = (row > 0) && (p->vy <= 0);
 
+    int collision = 0;
+
     if (checkTop && isCollision(map, row+1, col)) {
-        return mapAt(map, row+1, col);
-    } else if (checkTop && checkRight && isCollision(map, row+1, col+1)) {
-        return mapAt(map, row+1, col+1);
-    } else if (checkRight && isCollision(map, row, col+1)) {
-        return mapAt(map, row, col+1);
-    } else if (checkRight && checkBottom && isCollision(map, row-1, col+1)) {
-        return mapAt(map, row-1, col+1);
-    } else if (checkBottom && isCollision(map, row-1, col)) {
-        return mapAt(map, row-1, col);
-    } else if (checkBottom && checkLeft && isCollision(map, row-1, col-1)) {
-        return mapAt(map, row-1, col-1);
-    } else if (checkLeft && isCollision(map, row, col-1)) {
-        return mapAt(map, row, col-1);
-    } else if (checkLeft && checkTop && isCollision(map, row+1, col-1)) {
-        return mapAt(map, row+1, col-1);
+        collision |= COL_TOP;
     }
-    return EMPTY;
+    if (checkTop && checkRight && isCollision(map, row+1, col+1)) {
+        collision |= COL_TOP_RIGHT;
+    }
+    if (checkRight && isCollision(map, row, col+1)) {
+        collision |= COL_RIGHT;
+    }
+    if (checkRight && checkBottom && isCollision(map, row-1, col+1)) {
+        collision |= COL_BOT_RIGHT;
+    }
+    if (checkBottom && isCollision(map, row-1, col)) {
+        collision |= COL_BOT;
+    }
+    if (checkBottom && checkLeft && isCollision(map, row-1, col-1)) {
+        collision |= COL_BOT_LEFT;
+    }
+    if (checkLeft && isCollision(map, row, col-1)) {
+        collision |= COL_LEFT;
+    }
+    if (checkLeft && checkTop && isCollision(map, row+1, col-1)) {
+        collision |= COL_TOP_LEFT;
+    }
+    return collision;
+}
+
+int getCollisionIndex(const int *map, int dir, int row, int col) {
+    if ((dir & COL_TOP_LEFT) || (dir & COL_TOP) || (dir & COL_TOP_RIGHT)) {
+        ++row;
+    }
+    if ((dir & COL_TOP_RIGHT) || (dir & COL_RIGHT) || (dir & COL_BOT_RIGHT)) {
+        ++col;
+    }
+    if ((dir & COL_BOT_RIGHT) || (dir & COL_BOT) || (dir & COL_BOT_LEFT)) {
+        --row;
+    }
+    if ((dir & COL_BOT_LEFT) || (dir & COL_LEFT) || (dir & COL_TOP_LEFT)) {
+        --col;
+    } 
+    return mapAt(map, row, col);
 }
 
 void printMap(int *map) {
@@ -201,64 +237,68 @@ int main(void) {
 
             map[mapIndex(yPosLast, xPosLast)] = EMPTY;
 
-            int pIndex = checkCollision(map, yPos, xPos, particles+i);
+            int collisions = checkCollision(map, yPos, xPos, particles+i);
+            
+            for (int c = COL_TOP; c <= COL_TOP_LEFT; c <<= 1) {
+                if (collisions & c) {
+                    int pIndex = getCollisionIndex(map, c, yPos, xPos);
 
-            if (pIndex != EMPTY) { /* then collision */
-                float vy1 = particles[i].vy;
-                float vx1 = particles[i].vx;
+                    float vy1 = particles[i].vy;
+                    float vx1 = particles[i].vx;
 
-                float vy2 = particles[pIndex].vy;
-                float vx2 = particles[pIndex].vx;
+                    float vy2 = particles[pIndex].vy;
+                    float vx2 = particles[pIndex].vx;
 
-                /* compute angle between velocity vectors */
-                float theta1 = atan2f(particles[i].vy, particles[i].vx);
-                float theta2 = atan2f(particles[pIndex].vy, particles[pIndex].vx);
+                    /* compute angle between velocity vectors */
+                    float theta1 = atan2f(particles[i].vy, particles[i].vx);
+                    float theta2 = atan2f(particles[pIndex].vy, particles[pIndex].vx);
 
-                /* compute plane tangent to the point of contact */
-                float tPlane = (theta1 + theta2) / 2;
+                    /* compute plane tangent to the point of contact */
+                    float tPlane = (theta1 + theta2) / 2;
 
-                /* reflect velocity vectors across point of contact */
-                float vNet1 = sqrtf((vy1 * vy1) + (vx1 * vx1));
-                float vNet2 = sqrtf((vy2 * vy2) + (vx2 * vx2));
+                    /* reflect velocity vectors across point of contact */
+                    float vNet1 = sqrtf((vy1 * vy1) + (vx1 * vx1));
+                    float vNet2 = sqrtf((vy2 * vy2) + (vx2 * vx2));
 
-                /* rotate angles so tangent plane is vertical */
-                theta1 += (pi / 2) - tPlane;
-                theta2 += (pi / 2) - tPlane;
+                    /* rotate angles so tangent plane is vertical */
+                    theta1 += (pi / 2) - tPlane;
+                    theta2 += (pi / 2) - tPlane;
 
-                float vPerp1 = vNet1 * cosf(theta1);
-                float vPare1 = vNet1 * sinf(theta1);
+                    float vPerp1 = vNet1 * cosf(theta1);
+                    float vPare1 = vNet1 * sinf(theta1);
 
-                float vPerp2 = vNet2 * cosf(theta2);
-                float vPare2 = vNet2 * sinf(theta2);
+                    float vPerp2 = vNet2 * cosf(theta2);
+                    float vPare2 = vNet2 * sinf(theta2);
 
-                /* reflect velocity component parallel to tangent plane */
-                vPerp1 *= -1;
-                vPerp2 *= -1;
+                    /* reflect velocity component parallel to tangent plane */
+                    vPerp1 *= -1;
+                    vPerp2 *= -1;
 
-                theta1 = atan2f(vPare1, vPerp1);
-                theta2 = atan2f(vPerp2, vPare2);
+                    theta1 = atan2f(vPare1, vPerp1);
+                    theta2 = atan2f(vPerp2, vPare2);
 
-                vNet1 = sqrtf((vPare1 * vPare1) + (vPerp1 * vPerp1));
-                vNet2 = sqrtf((vPare2 * vPare2) + (vPerp2 * vPerp2));
+                    vNet1 = sqrtf((vPare1 * vPare1) + (vPerp1 * vPerp1));
+                    vNet2 = sqrtf((vPare2 * vPare2) + (vPerp2 * vPerp2));
 
-                vNet1 = vNet2 = (vNet1 + vNet2) / 2;
+                    vNet1 = vNet2 = (vNet1 + vNet2) / 2;
 
-                vNet1 *= ELASTICITY;
-                vNet2 *= ELASTICITY;
+                    vNet1 *= ELASTICITY;
+                    vNet2 *= ELASTICITY;
 
-                /* change back to original coordinates */
-                theta1 -= (pi / 2) - tPlane;
-                theta2 -= (pi / 2) - tPlane;
+                    /* change back to original coordinates */
+                    theta1 -= (pi / 2) - tPlane;
+                    theta2 -= (pi / 2) - tPlane;
 
-                particles[i].vx = vNet1 * cosf(theta1);
-                particles[i].vy = vNet1 * sinf(theta1);
+                    particles[i].vx = vNet1 * cosf(theta1);
+                    particles[i].vy = vNet1 * sinf(theta1);
 
-                particles[pIndex].vx = vNet2 * cosf(theta2);
-                particles[pIndex].vy = vNet2 * sinf(theta2);
+                    particles[pIndex].vx = vNet2 * cosf(theta2);
+                    particles[pIndex].vy = vNet2 * sinf(theta2);
 
-                #ifdef PRINTSTUFF
-                fprintf(stderr,"Collision with %d at (%d,%d)\n",pIndex,yPos,xPos);
-                #endif
+                    #ifdef PRINTSTUFF
+                    fprintf(stderr,"Collision with %d at (%d,%d)\n",pIndex,yPos,xPos);
+                    #endif
+                }
             }
             map[mapIndex(yPos, xPos)] = i;
             mvaddch(yPos, xPos, particles[i].ch);
